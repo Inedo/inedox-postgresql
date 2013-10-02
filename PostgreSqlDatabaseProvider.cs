@@ -8,7 +8,7 @@ using Inedo.BuildMaster.Web;
 
 namespace Inedo.BuildMasterExtensions.PostgreSql
 {
-    [ProviderProperties("PostgreSQL", "Supports PostgreSQL 8.0 and later.")]
+    [ProviderProperties("PostgreSQL", "Supports PostgreSQL 8.0 and later.", RequiresTransparentProxy = true)]
     [CustomEditor(typeof(PostgreSqlDatabaseProviderEditor))]
     public sealed class PostgreSqlDatabaseProvider : DatabaseProviderBase, IChangeScriptProvider
     {
