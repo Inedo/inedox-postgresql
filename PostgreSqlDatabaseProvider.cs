@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Reflection;
 using System.Text;
 using Inedo.BuildMaster.Extensibility.Providers;
 using Inedo.BuildMaster.Extensibility.Providers.Database;
@@ -12,6 +14,15 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
     [CustomEditor(typeof(PostgreSqlDatabaseProviderEditor))]
     public sealed class PostgreSqlDatabaseProvider : DatabaseProviderBase, IChangeScriptProvider
     {
+        public static IEnumerable<Assembly> EnumerateChangeScripterAssemblies()
+        {
+            return new[]
+            {
+                typeof(Npgsql.NpgsqlCommand).Assembly,
+                typeof(Mono.Security.ASN1).Assembly
+            };
+        }
+
         public override bool IsAvailable()
         {
             return true;
