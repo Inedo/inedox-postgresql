@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Data;
 using System.Text;
-using Devart.Data.PostgreSql;
 using Inedo.BuildMaster.Extensibility.Providers;
 using Inedo.BuildMaster.Extensibility.Providers.Database;
 using Inedo.BuildMaster.Web;
+using Npgsql;
 
 namespace Inedo.BuildMasterExtensions.PostgreSql
 {
@@ -12,10 +12,6 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
     [CustomEditor(typeof(PostgreSqlDatabaseProviderEditor))]
     public sealed class PostgreSqlDatabaseProvider : DatabaseProviderBase, IChangeScriptProvider
     {
-        public PostgreSqlDatabaseProvider()
-        {
-        }
-
         public override bool IsAvailable()
         {
             return true;
@@ -51,7 +47,7 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
         {
             try
             {
-                var csb = new PgSqlConnectionStringBuilder(ConnectionString);
+                var csb = new NpgsqlConnectionStringBuilder(this.ConnectionString);
                 var toString = new StringBuilder();
                 if (!string.IsNullOrEmpty(csb.Database))
                     toString.Append("PostgreSQL database \"" + csb.Database + "\"");
@@ -130,19 +126,18 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
                 return new ExecutionResult(ExecutionResult.Results.Failed, scriptName + " execution failed:" + ex.Message);
         }
 
-        private PgSqlConnection CreateConnection()
+        private NpgsqlConnection CreateConnection()
         {
-            var conStr = new PgSqlConnectionStringBuilder(this.ConnectionString)
+            var conStr = new NpgsqlConnectionStringBuilder(this.ConnectionString)
             {
-                Pooling = false,
-                Protocol = ProtocolVersion.Ver20
+                Pooling = false
             };
 
-            return new PgSqlConnection(conStr.ToString());
+            return new NpgsqlConnection(conStr.ToString());
         }
-        private PgSqlCommand CreateCommand(string cmdText)
+        private NpgsqlCommand CreateCommand(string cmdText)
         {
-            return new PgSqlCommand
+            return new NpgsqlCommand
             {
                 CommandTimeout = 0,
                 CommandText = cmdText,

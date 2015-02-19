@@ -8,7 +8,7 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
     public sealed class PostgreSqlChangeScript : ChangeScript
     {
         public PostgreSqlChangeScript(DataRow dr)
-            : base((long)dr["Numeric_Release_Number"], (int)dr["Script_Id"], (string)dr["Script_Name"], ((DateTime)dr["Executed_Date"]).ToUniversalTime(), dr["Success_Indicator"].ToString() == "Y")
+            : base((long)dr["numeric_release_number"], (int)dr["script_id"], (string)dr["script_name"], (DateTime)dr["executed_date"], dr["success_indicator"].ToString() == "Y")
         {
         }
     }
