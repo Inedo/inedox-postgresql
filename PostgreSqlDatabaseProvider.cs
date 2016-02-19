@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
 using System.Reflection;
 using System.Text;
@@ -10,7 +11,8 @@ using Npgsql;
 
 namespace Inedo.BuildMasterExtensions.PostgreSql
 {
-    [ProviderProperties("PostgreSQL", "Supports PostgreSQL 8.0 and later.", RequiresTransparentProxy = true)]
+    [DisplayName("PostgreSQL")]
+    [Description("Supports PostgreSQL 8.0 and later.")]
     [CustomEditor(typeof(PostgreSqlDatabaseProviderEditor))]
     public sealed class PostgreSqlDatabaseProvider : DatabaseProviderBase, IChangeScriptProvider
     {
@@ -18,8 +20,7 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
         {
             return new[]
             {
-                typeof(Npgsql.NpgsqlCommand).Assembly,
-                typeof(Mono.Security.ASN1).Assembly
+                typeof(NpgsqlCommand).Assembly
             };
         }
 
