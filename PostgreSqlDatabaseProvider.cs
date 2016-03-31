@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
+using System.Linq;
 using System.Reflection;
-using System.Text;
-using Inedo.BuildMaster.Extensibility.Providers;
-using Inedo.BuildMaster.Extensibility.Providers.Database;
+using System.Threading;
+using System.Threading.Tasks;
+using Inedo.BuildMaster.Extensibility.DatabaseConnections;
 using Inedo.BuildMaster.Web;
+using Inedo.BuildMasterExtensions.PostgreSql.Properties;
+using Inedo.Data;
+using Inedo.Diagnostics;
 using Npgsql;
 
 namespace Inedo.BuildMasterExtensions.PostgreSql
@@ -14,170 +17,143 @@ namespace Inedo.BuildMasterExtensions.PostgreSql
     [DisplayName("PostgreSQL")]
     [Description("Supports PostgreSQL 8.0 and later.")]
     [CustomEditor(typeof(PostgreSqlDatabaseProviderEditor))]
-    public sealed class PostgreSqlDatabaseProvider : DatabaseProviderBase, IChangeScriptProvider
+    public sealed class PostgreSqlDatabaseProvider : DatabaseConnection, IChangeScriptExecuter
     {
-        public static IEnumerable<Assembly> EnumerateChangeScripterAssemblies()
+        public static IEnumerable<Assembly> EnumerateChangeScripterAssemblies() => new[] { typeof(NpgsqlCommand).Assembly };
+
+        private LazyDisposableAsync<NpgsqlConnection> connection;
+
+        public PostgreSqlDatabaseProvider()
         {
-            return new[]
-            {
-                typeof(NpgsqlCommand).Assembly
-            };
+            this.connection = new LazyDisposableAsync<NpgsqlConnection>(this.CreateConnection, this.CreateConnectionAsync);
         }
 
-        public override bool IsAvailable()
+        public int MaxChangeScriptVersion => 1;
+
+        public override Task ExecuteQueryAsync(string query, CancellationToken cancellationToken) => this.ExecuteNonQueryAsync(query, cancellationToken);
+        public async Task InitializeDatabaseAsync(CancellationToken cancellationToken)
         {
-            return true;
+            var state = await this.GetStateAsync(cancellationToken);
+            if (state.IsInitialized)
+                return;
+
+            await this.ExecuteNonQueryAsync(Resources.Initialize, cancellationToken);
         }
-        public override void ValidateConnection()
+        public Task UpgradeSchemaAsync(IReadOnlyDictionary<int, Guid> canoncialGuids, CancellationToken cancellationToken)
         {
-            this.ExecuteQuery("select 1");
+            throw new NotSupportedException();
         }
-        public override void ExecuteQueries(string[] queries)
+        public async Task<ChangeScriptState> GetStateAsync(CancellationToken cancellationToken)
         {
-            using (var cmd = this.CreateCommand(string.Empty))
+            var tableName = await this.ExecuteScalarAsync(
+                "select table_name from information_schema.tables where table_name='__buildmaster_dbschemachanges'",
+                cancellationToken
+            ) as string;
+
+            if (tableName == null)
+                return new ChangeScriptState(false);
+
+            var records = await this.ExecuteDataTableAsync(
+                "select * from __buildmaster_dbschemachanges",
+                GetRecord,
+                cancellationToken
+            );
+
+            return new ChangeScriptState(1, records);
+        }
+        public async Task ExecuteChangeScriptAsync(ChangeScriptId scriptId, string scriptName, string scriptText, CancellationToken cancellationToken)
+        {
+            var scripts = await this.GetStateAsync(cancellationToken);
+            if (scripts.Scripts.Any(s => scriptId.ScriptId == s.Id.ScriptId))
             {
-                try
-                {
-                    cmd.Connection.Open();
-                    foreach (var sqlCommand in queries)
-                    {
-                        cmd.CommandText = sqlCommand;
-                        cmd.ExecuteNonQuery();
-                    }
-                }
-                finally
-                {
-                    cmd.Connection.Close();
-                }
+                this.LogInformation(scriptName + " already executed. Skipping...");
+                return;
             }
-        }
-        public override void ExecuteQuery(string query)
-        {
-            this.ExecuteQueries(new[] { query });
-        }
-        public override string ToString()
-        {
+
+            bool success;
             try
             {
-                var csb = new NpgsqlConnectionStringBuilder(this.ConnectionString);
-                var toString = new StringBuilder();
-                if (!string.IsNullOrEmpty(csb.Database))
-                    toString.Append("PostgreSQL database \"" + csb.Database + "\"");
-                else
-                    toString.Append("PostgreSQL");
-
-                if (!string.IsNullOrEmpty(csb.Host))
-                    toString.Append(" on host \"" + csb.Host + "\"");
-
-                return toString.ToString();
+                await this.ExecuteNonQueryAsync(scriptText, cancellationToken);
+                success = true;
+                this.LogInformation(scriptName + " executed successfully.");
             }
-            catch
+            catch (Exception ex)
             {
-                return "PostgreSQL";
+                success = false;
+                this.LogError(scriptName + " failed: " + ex.Message);
             }
+
+            await this.RecordResultAsync(scriptId, scriptName, success);
         }
 
-        public void InitializeDatabase()
+        protected override void Dispose(bool disposing)
         {
-            if (this.IsDatabaseInitialized())
-                throw new InvalidOperationException("The database has already been initialized.");
-
-            this.ExecuteQuery(Properties.Resources.Initialize);
-        }
-        public bool IsDatabaseInitialized()
-        {
-            this.ValidateConnection();
-
-            var tables = this.ExecuteDataTable("select 1 from information_schema.tables where table_name='__buildmaster_dbschemachanges'");
-            return tables.Rows.Count != 0;
-        }
-        public ChangeScript[] GetChangeHistory()
-        {
-            this.ValidateInitialization();
-
-            var tables = this.ExecuteDataTable("select * from __buildmaster_dbschemachanges");
-            var scripts = new PostgreSqlChangeScript[tables.Rows.Count];
-            for (int i = 0; i < tables.Rows.Count; i++)
-                scripts[i] = new PostgreSqlChangeScript(tables.Rows[i]);
-
-            return scripts;
-        }
-        public long GetSchemaVersion()
-        {
-            this.ValidateInitialization();
-
-            return (long)this.ExecuteDataTable(
-                "select coalesce(max(numeric_release_number),0) from __buildmaster_dbschemachanges"
-                ).Rows[0][0];
-        }
-        public ExecutionResult ExecuteChangeScript(long numericReleaseNumber, int scriptId, string scriptName, string scriptText)
-        {
-            this.ValidateInitialization();
-
-            var tables = this.ExecuteDataTable("select * from __buildmaster_dbschemachanges");
-            if (tables.Select("Script_Id=" + scriptId.ToString()).Length > 0)
-                return new ExecutionResult(ExecutionResult.Results.Skipped, scriptName + " already executed.");
-
-            Exception ex = null;
-            try { this.ExecuteQuery(scriptText); }
-            catch (Exception _ex) { ex = _ex; }
-
-            this.ExecuteQuery(string.Format(
-                "insert into __buildmaster_dbschemachanges "
-                + " (numeric_release_number, script_id, script_name, executed_date, success_indicator) "
-                + "values "
-                + "({0}, {1}, '{2}', now(), '{3}')",
-                numericReleaseNumber,
-                scriptId,
-                scriptName.Replace("'", "''"),
-                ex == null ? "Y" : "N"));
-
-            if (ex == null)
-                return new ExecutionResult(ExecutionResult.Results.Success, scriptName + " executed successfully.");
-            else
-                return new ExecutionResult(ExecutionResult.Results.Failed, scriptName + " execution failed:" + ex.Message);
+            this.connection.Dispose();
+            base.Dispose(disposing);
         }
 
         private NpgsqlConnection CreateConnection()
         {
-            var conStr = new NpgsqlConnectionStringBuilder(this.ConnectionString)
+            var conn = new NpgsqlConnection(this.ConnectionString);
+            conn.Open();
+            return conn;
+        }
+        private async Task<NpgsqlConnection> CreateConnectionAsync()
+        {
+            var conn = new NpgsqlConnection(this.ConnectionString);
+            await conn.OpenAsync();
+            return conn;
+        }
+        private async Task ExecuteNonQueryAsync(string query, CancellationToken cancellationToken)
+        {
+            using (var cmd = new NpgsqlCommand(query, await this.connection.ValueAsync))
             {
-                Pooling = false
-            };
+                cmd.CommandTimeout = 0;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+        private async Task<List<TRow>> ExecuteDataTableAsync<TRow>(string query, Func<NpgsqlDataReader, TRow> adapter, CancellationToken cancellationToken)
+        {
+            using (var cmd = new NpgsqlCommand(query, await this.connection.ValueAsync))
+            {
+                cmd.CommandTimeout = 0;
+                using (var reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(cancellationToken))
+                {
+                    var results = new List<TRow>();
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        results.Add(adapter(reader));
+                    }
 
-            return new NpgsqlConnection(conStr.ToString());
-        }
-        private NpgsqlCommand CreateCommand(string cmdText)
-        {
-            return new NpgsqlCommand
-            {
-                CommandTimeout = 0,
-                CommandText = cmdText,
-                Connection = this.CreateConnection()
-            };
-        }
-        private DataTable ExecuteDataTable(string sqlCommand)
-        {
-            var dt = new DataTable();
-            using (var cmd = this.CreateCommand(string.Empty))
-            {
-                try
-                {
-                    cmd.Connection.Open();
-                    cmd.CommandText = sqlCommand;
-                    dt.Load(cmd.ExecuteReader());
-                    return dt;
-                }
-                finally
-                {
-                    cmd.Connection.Close();
+                    return results;
                 }
             }
         }
-        private void ValidateInitialization()
+        private async Task<object> ExecuteScalarAsync(string query, CancellationToken cancellationToken)
         {
-            if (!this.IsDatabaseInitialized())
-                throw new InvalidOperationException("The database has not been initialized.");
+            using (var cmd = new NpgsqlCommand(query, await this.connection.ValueAsync))
+            {
+                cmd.CommandTimeout = 0;
+                return await cmd.ExecuteScalarAsync(cancellationToken);
+            }
+        }
+        private static ChangeScriptExecutionRecord GetRecord(NpgsqlDataReader reader)
+        {
+            return new ChangeScriptExecutionRecord(
+                new ChangeScriptId((int)reader["script_id"], (long)reader["numeric_release_number"]),
+                (string)reader["script_name"],
+                new DateTime(((NpgsqlTypes.NpgsqlDateTime)reader["executed_date"]).ToUniversalTime().Ticks, DateTimeKind.Utc),
+                (YNIndicator)(string)reader["success_indicator"]
+            );
+        }
+        private Task RecordResultAsync(ChangeScriptId scriptId, string scriptName, bool success)
+        {
+            var query = "insert into __buildmaster_dbschemachanges"
+                + " (numeric_release_number, script_id, script_name, executed_date, success_indicator)"
+                + " values"
+                + $" ({scriptId.LegacyReleaseSequence}, {scriptId.ScriptId}, '{scriptName.Replace("'", "''")}', now(), '{(YNIndicator)success}')";
+
+            return this.ExecuteNonQueryAsync(query, CancellationToken.None);
         }
     }
 }

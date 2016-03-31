@@ -15,4 +15,4 @@ using Inedo.BuildMaster.Extensibility;
 [assembly: AssemblyVersion("0.0.0.0")]
 [assembly: AssemblyFileVersion("0.0")]
 [assembly: CLSCompliant(false)]
-[assembly: RequiredBuildMasterVersion("3.0.0")]
+[assembly: RequiredBuildMasterVersion("5.0.0")]
