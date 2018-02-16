@@ -6,10 +6,10 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Inedo.BuildMaster.Extensibility.DatabaseConnections;
-using Inedo.BuildMaster.Web;
 using Inedo.BuildMasterExtensions.PostgreSql.Properties;
 using Inedo.Data;
 using Inedo.Diagnostics;
+using Inedo.Web;
 using Npgsql;
 
 namespace Inedo.BuildMasterExtensions.PostgreSql
