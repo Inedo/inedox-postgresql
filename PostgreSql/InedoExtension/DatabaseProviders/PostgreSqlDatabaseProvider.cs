@@ -5,19 +5,17 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using Inedo.BuildMaster.Extensibility.DatabaseConnections;
 using Inedo.Data;
 using Inedo.Diagnostics;
+using Inedo.Extensibility.DatabaseConnections;
 using Inedo.Extensions.PostgreSql.Properties;
 using Inedo.Serialization;
-using Inedo.Web;
 using Npgsql;
 
 namespace Inedo.Extensions.PostgreSql
 {
     [DisplayName("PostgreSQL")]
     [Description("Supports PostgreSQL 8.0 and later.")]
-    [CustomEditor(typeof(PostgreSqlDatabaseProviderEditor))]
     [PersistFrom("Inedo.BuildMasterExtensions.PostgreSql.PostgreSqlDatabaseProvider,PostgreSql")]
     public sealed class PostgreSqlDatabaseProvider : DatabaseConnection, IChangeScriptExecuter
     {

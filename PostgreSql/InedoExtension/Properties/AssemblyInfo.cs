@@ -2,6 +2,9 @@
 using System.Reflection;
 using System.Resources;
 using System.Runtime.InteropServices;
+using Inedo.Extensibility;
+
+[assembly: AppliesTo(InedoProduct.BuildMaster)]
 
 [assembly: AssemblyTitle("PostgreSQL")]
 [assembly: AssemblyDescription("Database integration for PostgreSQL 8.0 or later.")]
